@@ -281,3 +281,89 @@ function searchForReportIdsByDeveloperName() {
 		cache.put('reportIds', JSON.stringify(reportIds));
 	}
 }
+
+function describeDashboard(dashboardId) {
+  var salesforceConfig = new Config();
+  if(!dashboardId){
+    return; 
+  }
+  var requestUrl = salesforceConfig.instanceUrl + '/services/data/v50.0/analytics/dashboards/' + dashboardId + '/describe';
+  var accessToken = getAndSetAuth2Token();
+  var options = {
+    muteHttpExceptions: true,
+    headers: {
+      Authorization: "Bearer " + accessToken
+    }
+  };
+  var response = UrlFetchApp.fetch(requestUrl, options);
+  if(response.getResponseCode() == 401){
+    getAndSetAuth2Token();
+    describeDashboard(dashboardId);
+  }
+  return JSON.parse(response);
+}
+
+function doDashboardPatch(dashboardId, metadata) {
+  if(!dashboardId){
+    return; 
+  }
+  var salesforceConfig = new Config();
+  var userProps = PropertiesService.getUserProperties();
+  var requestUrl = salesforceConfig.instanceUrl + '/services/data/v50.0/analytics/dashboards/' + dashboardId;
+  var accessToken = getAndSetAuth2Token();
+  var options = {
+    "headers": {
+      "Authorization": "Bearer " + accessToken,
+      "content-type": "application/json"
+    },
+    "method": "patch",
+    "muteHttpExceptions": false,
+    "payload": JSON.stringify(metadata)
+  };
+  //try{
+    var response = UrlFetchApp.fetch(requestUrl, options);
+    return JSON.parse(response);
+  //}
+  //catch(e){
+    return;
+  //}
+}
+
+function doDeleteDashboardComponents(dashboardId){
+  var dashboardData = describeDashboard(dashboardId);
+  var components = dashboardData.components;
+  components.forEach(function(component, index, components){
+    var obj = {};
+    obj.object = 'DashboardComponent';
+    obj.id = component.id;
+    recordDelete(obj);
+  });
+}
+
+function doDashboardDelete(id) {
+	var config = new Config();
+	var accessToken = getAndSetAuth2Token();
+	var requestUrl = config.instanceUrl + "/services/data/v51.0/analytics/dashboards/" + id;
+	var options = {
+		"headers": {
+			"Authorization": "Bearer " + accessToken,
+			"content-type": "application/json"
+		},
+		"method": "delete",
+		"muteHttpExceptions": false
+	};
+	var response = UrlFetchApp.fetch(requestUrl, options);
+}
+
+function doDashboardsDeleteByFolderId(folderId) {
+	if (folderId) {
+		var response = soqlRequest("SELECT Id FROM Dashboard WHERE OwnerId = '" + folderId + "'");
+		if (response.totalSize > 0) {
+			var records = response.records;
+			records.forEach(function(record, index, records) {
+				doDashboardDelete(record.Id);
+			});
+		}
+	}
+}
+
