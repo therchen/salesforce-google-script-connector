@@ -146,3 +146,138 @@ function recordUpdate(request) {
     return;
   }
 }
+
+function describeReport(reportId) {
+	var config = new Config();
+	if (!reportId) {
+		return;
+	}
+	var requestUrl = config.instanceUrl + '/services/data/v50.0/analytics/reports/' + reportId + '/describe';
+	var accessToken = getAndSetAuth2Token();
+	var options = {
+		muteHttpExceptions: true,
+		headers: {
+			Authorization: "Bearer " + accessToken
+		}
+	};
+	var response = UrlFetchApp.fetch(requestUrl, options);
+	if (response.getResponseCode() == 401) {
+		getAndSetAuth2Token();
+		describeReport(reportId);
+	}
+	return JSON.parse(response);
+}
+
+function doReportDelete(id) {
+	var config = new Config();
+	var accessToken = getAndSetAuth2Token();
+	var requestUrl = config.instanceUrl + "/services/data/v51.0/analytics/reports/" + id;
+	var options = {
+		"headers": {
+			"Authorization": "Bearer " + accessToken,
+			"content-type": "application/json"
+		},
+		"method": "delete",
+		"muteHttpExceptions": true
+	};
+	var response = UrlFetchApp.fetch(requestUrl, options);
+}
+
+function doReportsDeleteByFolderId(folderId) {
+	if (folderId) {
+		var response = soqlRequest("SELECT Id FROM Report WHERE OwnerId = '" + folderId + "'");
+		if (response.totalSize > 0) {
+			var records = response.records;
+			records.forEach(function(record, index, records) {
+				doReportDelete(record.Id);
+			});
+		}
+	}
+}
+
+function doReportPatch(reportId, reportMetadata) {
+	if (!reportId) {
+		return;
+	}
+	var config = new Config();
+	var userProps = PropertiesService.getUserProperties();
+	var requestUrl = config.instanceUrl + '/services/data/v50.0/analytics/reports/' + reportId;
+	var accessToken = getAndSetAuth2Token();
+	var options = {
+		"headers": {
+			"Authorization": "Bearer " + accessToken,
+			"content-type": "application/json"
+		},
+		"method": "patch",
+		"muteHttpExceptions": false,
+		"payload": JSON.stringify(reportMetadata)
+	};
+	try {
+		var response = UrlFetchApp.fetch(requestUrl, options);
+		return response.getResponseCode();
+	} catch (e) {
+		return;
+	}
+}
+
+function doReportPost(reportMetadata) {
+	if (!reportMetadata) {
+		return;
+	}
+	var config = new Config();
+	var requestUrl = config.instanceUrl + '/services/data/v50.0/analytics/reports';
+	var accessToken = getAndSetAuth2Token();
+	var options = {
+		"headers": {
+			"Authorization": "Bearer " + accessToken,
+			"content-type": "application/json"
+		},
+		"method": "post",
+		"muteHttpExceptions": false,
+		"payload": JSON.stringify(reportMetadata)
+	};
+	try {
+		var response = UrlFetchApp.fetch(requestUrl, options);
+		if (response.getResponseCode() == 200) {
+			return JSON.parse(response).attributes.reportId;
+		} else {
+			return;
+		}
+	} catch (e) {
+		return;
+	}
+}
+
+function replaceFieldInReport() {
+	var cache = CacheService.getScriptCache();
+	if (cache.get('reportIds')) {
+		var reportIds = JSON.parse(cache.get('reportIds'));
+		for (var i = 0; i < reportIds.length; i++) {
+			var reportId = reportIds[i];
+			var describeResponse = describeReport(reportId);
+			var oldString = JSON.stringify(describeResponse);
+			var newString = oldString.replace(/Total_Contract_Value__c[a-z]*/g, "Total_Contract_Value2__c");
+			var reportMetadata = JSON.parse(newString);
+			var patchResponse = doReportPatch(reportId, reportMetadata);
+		}
+	}
+}
+
+function searchForReportIdsByDeveloperName() {
+	var cache = CacheService.getScriptCache();
+	var ss = SpreadsheetApp.openById('1QXiO3k7hc3TAAm6mnTrYeye1yjkpfmYYpXR9F5yvDfs');
+	var sh = ss.getSheetByName('Paste');
+	var reportNames = convert(sh.getRange(1, 1, sh.getLastRow(), 1).getValues());
+	var reportIds = [];
+	for (var i = 0; i < reportNames.length; i++) {
+		var query = "SELECT Id,DeveloperName FROM Report WHERE DeveloperName = '" + reportNames[i] + "'";
+		var response = soqlRequest(query);
+		if (response.totalSize != 0) {
+			var id = response.records[0].Id;
+			reportIds.push(id);
+		}
+	}
+	if (reportIds.length > 0) {
+		cache.put('reportIds', JSON.stringify(reportIds));
+	}
+}
